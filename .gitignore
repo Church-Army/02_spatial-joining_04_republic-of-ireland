@@ -1,0 +1,11 @@
+.Rproj.user
+/geospatial-data/civic-areas
+*.html
+R/*_files
+*.xlsx
+/.Rhistory
+.Rhistory
+.Rdata
+.httr-oauth
+.DS_Store
+.quarto

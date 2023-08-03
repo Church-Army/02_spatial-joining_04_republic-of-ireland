@@ -1,0 +1,173 @@
+---
+title: "Spatial joining Irish CoM Areas to Output Areas"
+author: "Dave"
+format: html
+editor: visual
+---
+
+## Housekeeping
+
+### Libraries
+
+```{r libs}
+#| message: false
+library(fs)
+library(sf)
+library(here)
+library(stringr)
+library(dplyr)
+library(purrr)
+library(ggplot2)
+library(carutools)
+library(ggspatial)
+library(scales)
+library(vroom)
+```
+
+### Read in Data
+
+Read in CoM shapefiles:
+
+```{r readShapefiles}
+coms <- dir_ls(here("geospatial-data", "com-areas"))
+names(coms) <- str_extract(coms, "(?<=/)[^/]+$")
+coms <- as.list(coms)
+
+coms <- map(coms, read_sf)
+
+# coms[[1]]
+```
+
+Then we'll also read in the Irish output areas:
+
+```{r readInScottishsa}
+sa <- read_sf(here("geospatial-data", "civic-areas",
+                   "2015_sa-boundaries_republic-of-ireland"))
+```
+
+## Format data
+
+We'll unionise the com shapes:
+
+```{r unioniseComShapes}
+## Reproject (see equivalent doc for E/W for better explanation)
+coms <- map(coms, \(x) st_transform(x, st_crs(sa)))
+
+## Unionisise and simplify
+coms_simplified <- map(coms, st_union)
+coms_simplified <- map(coms, st_make_valid)
+
+coms_union <- reduce(coms_simplified, st_union)
+```
+
+### Map all com areas
+
+```{r mapAllComAreas}
+ggplot(coms_union)
+  geom_sf(fill = ca_cyan()) +
+  theme_minimal() +
+  scale_y_continuous(expand = expansion(mult = 0.15)) +
+  annotation_scale()
+```
+
+Great!
+
+### Filter output areas
+
+We only need output areas that intersect the unionised CoM shapes
+
+```{r filtersa}
+intersections <- st_intersects(sa, coms_union, sparse = FALSE)[, 1]
+table(intersections)
+
+sa <- filter(sa, intersections)
+nrow(sa)
+
+rm(coms_union, intersections)
+```
+
+### Tidy up output areas
+
+One of these small areas has two codes associated with it?
+
+```{r tidyOutputAreas}
+sa <- select(sa, sa_2015_code = SMALL_AREA)
+head(sa)
+```
+
+## Calculate overlaps
+
+```{r calculateOverlaps}
+intersecting_sa <-
+  map(
+    coms_simplified,
+    \(x){
+      intersection <- st_intersects(sa, x, sparse = FALSE)[, 1]
+      filter(sa, intersection)
+      })
+
+head(intersecting_sa[[1]])
+
+intersecting_sa <- map(intersecting_sa, mutate,
+                       sa_area = st_area(geometry))
+
+suppressWarnings({
+  overlap <- map2(intersecting_sa, coms_simplified, st_intersection)
+})
+
+overlap <- map(overlap, mutate,
+               overlapping_area = st_area(geometry))
+
+overlap[[1]] |>
+  filter(round(overlapping_area,1) < round(sa_area,1)) |>
+  select(sa_2015_code, sa_area, overlapping_area) |>
+  arrange(overlapping_area - sa_area) |>
+  head()
+
+overlap <- map(overlap, mutate,
+               ratio_sa_intersection_com =
+                 round(overlapping_area / sa_area, 7))
+
+quantile(overlap[[1]][["ratio_sa_intersection_com"]])
+```
+
+Looks like over 75% of sa fit entirely inside CoM areas, which makes sense as each comprises about 20 households.
+
+### Visualise
+
+Let's check it's what we want
+
+```{r visualise}
+names(overlap)[[1]]
+
+a7_sa_codes <- overlap[["ballina"]][["sa_2015_code"]]
+a7_sa <- filter(sa, sa_2015_code %in% a7_sa_codes)
+
+ggplot(a7_sa) +
+  geom_sf(fill = ca_cyan(), alpha = 0.2) +
+  geom_sf(data = overlap[["ballina"]],
+          fill = ca_green(), alpha = 0.6, colour = ca_orange()) +
+  theme_minimal()
+```
+
+Nice!
+
+## Export overlap
+
+```{r exportOverlap}
+overlap_stats <- map(overlap, as_tibble)
+
+overlap_stats <- map(overlap_stats, select,
+                     sa_2015_code, ratio_sa_intersection_com)
+
+dir_create(here("overlaps_com-sa"))
+
+iwalk(overlap_stats,
+      \(x, y){
+        vroom_write(
+          x,
+          file = here("overlaps_com-sa", str_c(y, ".csv")),
+          delim = ","
+          )
+      })
+```
