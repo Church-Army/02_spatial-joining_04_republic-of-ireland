@@ -11,11 +11,13 @@ editor: visual
 
 ```{r libs}
 #| message: false
+library(conflicted)
 library(fs)
 library(sf)
 library(here)
 library(stringr)
 library(dplyr)
+conflicted::conflicts_prefer(dplyr::filter)
 library(purrr)
 library(ggplot2)
 library(carutools)
@@ -42,7 +44,7 @@ Then we'll also read in the Irish output areas:
 
 ```{r readInScottishsa}
 sa <- read_sf(here("geospatial-data", "civic-areas",
-                   "2015_sa-boundaries_republic-of-ireland"))
+                   "roi_sa_2022_ungeneralised"))
 ```
 
 ## Format data
@@ -91,7 +93,7 @@ rm(coms_union, intersections)
 One of these small areas has two codes associated with it?
 
 ```{r tidyOutputAreas}
-sa <- select(sa, sa_2015_code = SMALL_AREA)
+sa <- select(sa, sa_2022_code = SA_PUB2022)
 head(sa)
 ```
 
@@ -120,7 +122,7 @@ overlap <- map(overlap, mutate,
 
 overlap[[1]] |>
   filter(round(overlapping_area,1) < round(sa_area,1)) |>
-  select(sa_2015_code, sa_area, overlapping_area) |>
+  select(sa_2022_code, sa_area, overlapping_area) |>
   arrange(overlapping_area - sa_area) |>
   head()
 
@@ -140,8 +142,8 @@ Let's check it's what we want
 ```{r visualise}
 names(overlap)[[1]]
 
-a7_sa_codes <- overlap[["ballina"]][["sa_2015_code"]]
-a7_sa <- filter(sa, sa_2015_code %in% a7_sa_codes)
+a7_sa_codes <- overlap[["ballina"]][["sa_2022_code"]]
+a7_sa <- filter(sa, sa_2022_code %in% a7_sa_codes)
 
 ggplot(a7_sa) +
   geom_sf(fill = ca_cyan(), alpha = 0.2) +
@@ -158,7 +160,7 @@ Nice!
 overlap_stats <- map(overlap, as_tibble)
 
 overlap_stats <- map(overlap_stats, select,
-                     sa_2015_code, ratio_sa_intersection_com)
+                     sa_2022_code, ratio_sa_intersection_com)
 
 dir_create(here("overlaps_com-sa"))
 
